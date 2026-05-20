@@ -246,11 +246,12 @@ function isBlockedTitle(title) {
   return false;
 }
 
-function escapeRe(s) { return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&'); }
+// Plain case-insensitive substring match (no regex, no word boundaries) — per latest rule.
+// Trade-off: short tokens like "JS" / "TS" will match more aggressively (false positives possible).
 function compile(groups) {
   return groups.map(g => ({
     canonical: g.canonical,
-    regexes: g.terms.map(t => new RegExp(`(?:^|[^a-z0-9+#])${escapeRe(t.toLowerCase())}(?:[^a-z0-9+#]|$)`, 'i')),
+    terms: g.terms.map(t => t.toLowerCase()),
   }));
 }
 const _MY = compile(SKILL_GROUPS);
@@ -260,18 +261,19 @@ const _OTHER = compile(OTHER_SKILLS);
 //   matched = MY_SKILLS canonicals that appear in JD
 //   missing = MY_SKILLS canonicals NOT in JD
 //   total_jd_skills = MY hits + OTHER hits (skills the JD mentions that I don't have)
-//   score = matched / total_jd_skills × 100   ← the new formula you asked for
+//   score = matched / total_jd_skills × 100
 function findMatches(text) {
   if (!text) return { matched: [], missing: MY_SKILLS.slice(), score: 0, total_jd_skills: 0 };
+  const lower = String(text).toLowerCase();
   const matched = [];
   const missing = [];
   for (const g of _MY) {
-    if (g.regexes.some(re => re.test(text))) matched.push(g.canonical);
+    if (g.terms.some(t => lower.includes(t))) matched.push(g.canonical);
     else missing.push(g.canonical);
   }
   let otherHits = 0;
   for (const g of _OTHER) {
-    if (g.regexes.some(re => re.test(text))) otherHits++;
+    if (g.terms.some(t => lower.includes(t))) otherHits++;
   }
   const total_jd_skills = matched.length + otherHits;
   const score = total_jd_skills ? Math.round((matched.length / total_jd_skills) * 100) : 0;

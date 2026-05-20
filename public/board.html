@@ -275,9 +275,9 @@ function freshCountdown(iso) {
   if (!iso) return '';
   const t = Date.parse(iso); if (Number.isNaN(t)) return '';
   const days = Math.floor((Date.now() - t) / 86400000);
-  if (days <= 0)  return '<span class="badge fresh-cd-today" title="Posted today">⏳ expires from Fresh in 2 days</span>';
-  if (days === 1) return '<span class="badge fresh-cd-yesterday" title="Posted yesterday">⏳ expires from Fresh tomorrow</span>';
-  if (days === 2) return '<span class="badge fresh-cd-last" title="Posted 2 days ago">⏳ last day in Fresh Jobs</span>';
+  if (days <= 0)  return '<span class="badge fresh-cd-today"     title="Posted today">⏳ 2 days left in Fresh</span>';
+  if (days === 1) return '<span class="badge fresh-cd-yesterday" title="Posted yesterday">⏳ 1 day left in Fresh</span>';
+  if (days === 2) return '<span class="badge fresh-cd-last"      title="Posted 2 days ago — falls out of Fresh tomorrow">⏳ Last day in Fresh — apply now!</span>';
   return '';
 }
 
