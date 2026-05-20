@@ -13,7 +13,7 @@ const express = require('express');
 const multer = require('multer');
 const cron = require('node-cron');
 const Database = require('better-sqlite3');
-const { run: runImport, ensureSchema } = require('./import.js');
+const { runImport, ensureSchema } = require('./import.js');
 const { parseResume, parseJob } = require('./skills.js');
 const { scoreOne } = require('./match.js');
 const { fetchJdText } = require('./jd_fetch.js');
@@ -29,10 +29,22 @@ const DB_PATH = process.env.RAILWAY_VOLUME_MOUNT_PATH
 const PUBLIC_DIR = path.join(__dirname, 'public');
 
 // --- First-run import ---
+// Make sure the parent dir exists (Railway volume mount or local dir).
+try {
+  fs.mkdirSync(path.dirname(DB_PATH), { recursive: true });
+} catch (err) {
+  console.error('[init] Could not ensure DB directory:', err.message);
+}
+
 let dbExisted = fs.existsSync(DB_PATH);
 if (!dbExisted) {
   console.log('[init] jobs.db not found — running first-time import…');
-  runImport();
+  try {
+    runImport(DB_PATH);
+  } catch (err) {
+    console.error('Import failed:', err.message);
+    console.log('Starting with empty/existing DB');
+  }
 }
 
 const db = new Database(DB_PATH);

@@ -5,7 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const Database = require('better-sqlite3');
 
-const DB_PATH = path.join(__dirname, 'jobs.db');
+const DEFAULT_DB_PATH = path.join(__dirname, 'jobs.db');
 const CSV_PATH = path.join(__dirname, 'jobs.csv');
 
 // --- CSV parser (handles quoted fields, escaped quotes) ---
@@ -326,8 +326,10 @@ function importCsv(db, csvPath) {
   return { inserted, skippedNonSoftware, skippedDup, skippedNoUrl, total };
 }
 
-function run() {
-  const db = new Database(DB_PATH);
+function runImport(dbPath) {
+  const targetPath = dbPath || DEFAULT_DB_PATH;
+  fs.mkdirSync(path.dirname(targetPath), { recursive: true });
+  const db = new Database(targetPath);
   db.exec('PRAGMA journal_mode = WAL');
   db.exec('PRAGMA foreign_keys = ON');
   ensureSchema(db);
@@ -337,7 +339,7 @@ function run() {
 }
 
 if (require.main === module) {
-  run();
+  runImport();
 }
 
-module.exports = { run, importCsv, ensureSchema, dedupKey, scoreCompetition };
+module.exports = { runImport, run: runImport, importCsv, ensureSchema, dedupKey, scoreCompetition };
