@@ -1,0 +1,21 @@
+node_modules
+.git
+.gitignore
+*.log
+phase*.log
+hospitals_step*.log
+hed_*.log
+server.log
+fix*.log
+jobs_aggregators.csv
+jobs_himss.csv
+jobs_hjo.csv
+jobs_clean.csv
+out/
+# Keep jobs.csv so first-run import populates the DB from it.
+jobs.db
+jobs.db-shm
+jobs.db-wal
+.env
+.env.local
+.DS_Store

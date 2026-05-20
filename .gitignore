@@ -1,0 +1,41 @@
+# Dependencies
+node_modules/
+
+# Local databases (use Railway volume on deploy)
+jobs.db
+jobs.db-shm
+jobs.db-wal
+
+# Logs (each scrape produces a fresh log; not useful to track)
+*.log
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+
+# Scrape artifacts — keep jobs.csv as the seed, ignore the rest
+jobs_aggregators.csv
+jobs_himss.csv
+jobs_hjo.csv
+jobs_clean.csv
+jobs_low_competition.csv
+out/
+
+# Claude Code agent state — not part of the project
+.claude/
+
+# Probe / diagnostic artifacts
+hed_render.html
+hed_*.html
+ahima_probe.html
+ania*.html
+himss*.html
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Editor
+.vscode/
+.idea/

@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Tracker — Dashboard</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>Job Tracker</h1>
+    <nav>
+      <a href="/" class="active">Dashboard</a>
+      <a href="/board.html">Job Board</a>
+      <a href="/applications.html">Applications</a>
+      <a href="/resume.html">My Resume</a>
+      <a href="/stats.html">Stats</a>
+      <a href="/removed.html">Removed</a>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h2>Dashboard</h2>
+        <div class="last-scraped" id="last-scraped">Loading…</div>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()">☾ Dark</button>
+    </div>
+
+    <div id="reminder-banner" class="banner"></div>
+
+    <h3 style="margin: 4px 0 12px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Jobs available</h3>
+    <div class="kpis" id="kpi-jobs">
+      <div class="kpi accent"><div class="label">Universities</div><div class="value" id="k-uni">–</div><div class="sub" id="b-uni"><a href="/board.html?org_type=university">view →</a></div></div>
+      <div class="kpi accent"><div class="label">NGOs</div><div class="value" id="k-ngo">–</div><div class="sub" id="b-ngo"><a href="/board.html?org_type=ngo">view →</a></div></div>
+      <div class="kpi accent"><div class="label">Hospitals</div><div class="value" id="k-hosp">–</div><div class="sub" id="b-hosp"><a href="/board.html?org_type=hospital">view →</a></div></div>
+      <div class="kpi green"><div class="label">Low Competition</div><div class="value" id="k-low">–</div><div class="sub"><a href="/board.html?org_type=low_competition">view →</a></div></div>
+      <div class="kpi"><div class="label">Other</div><div class="value" id="k-other">–</div><div class="sub" id="b-other"><a href="/board.html?org_type=other">view →</a></div></div>
+    </div>
+
+    <h3 style="margin: 20px 0 12px; font-size: 14px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">My applications</h3>
+    <div class="kpis">
+      <div class="kpi purple"><div class="label">Saved</div><div class="value" id="a-saved">–</div></div>
+      <div class="kpi accent"><div class="label">Applied</div><div class="value" id="a-applied">–</div></div>
+      <div class="kpi yellow"><div class="label">Interview</div><div class="value" id="a-interview">–</div></div>
+      <div class="kpi green"><div class="label">Offer</div><div class="value" id="a-offer">–</div></div>
+      <div class="kpi red"><div class="label">Rejected</div><div class="value" id="a-rejected">–</div></div>
+    </div>
+
+    <div style="margin: 18px 0; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;">
+      <span class="badge competition-low" id="posted-today-badge" style="display:none;">
+        <a href="/board.html?posted_within=today" style="color:inherit;text-decoration:none;">
+          <span id="posted-today-n">0</span> jobs posted today →
+        </a>
+      </span>
+      <span class="badge remote-no" id="removed-badge" style="display:none;">
+        <a href="/removed.html" style="color:inherit;text-decoration:none;">
+          <span id="removed-n">0</span> jobs removed →
+        </a>
+      </span>
+    </div>
+
+    <div class="chart-row">
+      <div class="chart-card"><h3>Jobs added per day (last 30 days)</h3><canvas id="chart-by-day"></canvas></div>
+      <div class="chart-card"><h3>My applications by status</h3><canvas id="chart-apps"></canvas></div>
+    </div>
+  </main>
+</div>
+
+<div id="modal-bg" class="modal-bg"><div class="modal"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="/js/common.js"></script>
+<script>
+async function loadDashboard() {
+  const d = await jget('/api/dashboard');
+  document.getElementById('k-uni').textContent  = fmtNum(d.counts.universities);
+  document.getElementById('k-ngo').textContent  = fmtNum(d.counts.ngos);
+  document.getElementById('k-hosp').textContent = fmtNum(d.counts.hospitals);
+  document.getElementById('k-low').textContent  = fmtNum(d.counts.low_competition);
+  document.getElementById('k-other').textContent= fmtNum(d.counts.other);
+
+  // Render source breakdown under each org-type card. Preserves the "view →" link.
+  const labelToSlug = { 'Direct': 'direct', 'via HigherEdJobs': 'higheredjobs', 'via Chronicle': 'chronicle', 'via us-rse.org': 'us-rse', 'via Idealist': 'idealist', 'via HIMSS JobMine': 'himss' };
+  function renderBreakdown(elId, orgType, viewHref) {
+    const el = document.getElementById(elId);
+    const link = `<a href="${viewHref}">view →</a>`;
+    const sources = (d.sourcesByOrgType || {})[orgType] || {};
+    const entries = Object.entries(sources).sort((a,b) => b[1] - a[1]);
+    const rows = entries.map(([label, n]) => {
+      const slug = labelToSlug[label] || 'direct';
+      return `<div style="display:flex; justify-content:space-between; gap:8px; align-items:center; margin-top:3px;">
+        <span class="badge source-${slug}" style="font-size:10px;">${escapeHtml(label)}</span>
+        <span style="font-size:12px; color: var(--muted);">${fmtNum(n)}</span>
+      </div>`;
+    }).join('');
+    el.innerHTML = rows + `<div style="margin-top:6px;">${link}</div>`;
+  }
+  renderBreakdown('b-uni',   'university', '/board.html?org_type=university');
+  renderBreakdown('b-ngo',   'ngo',        '/board.html?org_type=ngo');
+  renderBreakdown('b-hosp',  'hospital',   '/board.html?org_type=hospital');
+  renderBreakdown('b-other', 'small_org',  '/board.html?org_type=other');
+  document.getElementById('a-saved').textContent     = fmtNum(d.appStats.saved);
+  document.getElementById('a-applied').textContent   = fmtNum(d.appStats.applied);
+  document.getElementById('a-interview').textContent = fmtNum(d.appStats.interview);
+  document.getElementById('a-offer').textContent     = fmtNum(d.appStats.offer);
+  document.getElementById('a-rejected').textContent  = fmtNum(d.appStats.rejected);
+
+  if (d.postedToday > 0) {
+    document.getElementById('posted-today-badge').style.display = 'inline-block';
+    document.getElementById('posted-today-n').textContent = d.postedToday;
+  }
+  if ((d.counts.removed || 0) > 0) {
+    document.getElementById('removed-badge').style.display = 'inline-block';
+    document.getElementById('removed-n').textContent = d.counts.removed;
+  }
+
+  // Bar chart — jobs added per day
+  const dayLabels = []; const dayValues = [];
+  const map = Object.fromEntries((d.jobsByDay || []).map(r => [r.day, r.n]));
+  for (let i = 29; i >= 0; i--) {
+    const dt = new Date(); dt.setDate(dt.getDate() - i);
+    const iso = dt.toISOString().slice(0, 10);
+    dayLabels.push(iso.slice(5));
+    dayValues.push(map[iso] || 0);
+  }
+  new Chart(document.getElementById('chart-by-day'), {
+    type: 'bar',
+    data: { labels: dayLabels, datasets: [{ label: 'Jobs added', data: dayValues, backgroundColor: '#3b82f6' }] },
+    options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true } } },
+  });
+
+  // Donut — apps by status
+  const labels = ['Saved','Applied','Interview','Offer','Rejected'];
+  const values = [d.appStats.saved, d.appStats.applied, d.appStats.interview, d.appStats.offer, d.appStats.rejected];
+  new Chart(document.getElementById('chart-apps'), {
+    type: 'doughnut',
+    data: { labels, datasets: [{ data: values, backgroundColor: ['#8b5cf6','#3b82f6','#f59e0b','#10b981','#ef4444'] }] },
+    options: { plugins: { legend: { position: 'bottom' } } },
+  });
+}
+loadDashboard().catch(e => console.error(e));
+</script>
+</body>
+</html>

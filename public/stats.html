@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Tracker — Stats</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>Job Tracker</h1>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/board.html">Job Board</a>
+      <a href="/applications.html">Applications</a>
+      <a href="/resume.html">My Resume</a>
+      <a href="/stats.html" class="active">Stats</a>
+      <a href="/removed.html">Removed</a>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h2>Stats</h2>
+        <div class="last-scraped" id="last-scraped"></div>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()">☾ Dark</button>
+    </div>
+
+    <div id="reminder-banner" class="banner"></div>
+
+    <div class="kpis" style="grid-template-columns: repeat(4, 1fr);">
+      <div class="kpi accent"><div class="label">Total Jobs</div><div class="value" id="s-total">–</div></div>
+      <div class="kpi purple"><div class="label">My Applications</div><div class="value" id="s-apps">–</div></div>
+      <div class="kpi yellow"><div class="label">Interviews</div><div class="value" id="s-int">–</div></div>
+      <div class="kpi green"><div class="label">Response Rate</div><div class="value" id="s-rr">–</div><div class="sub">interviews / applied</div></div>
+    </div>
+
+    <div class="chart-row" style="grid-template-columns: 1fr 1fr;">
+      <div class="chart-card">
+        <h3>Application funnel</h3>
+        <canvas id="funnel"></canvas>
+      </div>
+      <div class="chart-card">
+        <h3>Jobs by org type</h3>
+        <canvas id="org-chart"></canvas>
+      </div>
+    </div>
+
+    <div class="chart-row" style="grid-template-columns: 1fr 1fr;">
+      <div class="chart-card">
+        <h3>Top ATS platforms</h3>
+        <table class="stat-table" id="t-ats"></table>
+      </div>
+      <div class="chart-card">
+        <h3>Top sources</h3>
+        <table class="stat-table" id="t-source"></table>
+      </div>
+    </div>
+
+    <div class="chart-card" style="margin-top: 18px;">
+      <h3>Jobs by state (top 60)</h3>
+      <table class="stat-table" id="t-state"></table>
+    </div>
+  </main>
+</div>
+
+<div id="modal-bg" class="modal-bg"><div class="modal"></div></div>
+
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
+<script src="/js/common.js"></script>
+<script>
+function renderTable(tbody, rows, headers) {
+  const head = '<tr>' + headers.map(h => `<th>${h}</th>`).join('') + '</tr>';
+  const body = rows.length
+    ? rows.map(r => '<tr>' + r.map(c => `<td>${escapeHtml(String(c))}</td>`).join('') + '</tr>').join('')
+    : '<tr><td colspan="' + headers.length + '" style="color:var(--muted);">no data</td></tr>';
+  tbody.innerHTML = head + body;
+}
+
+async function load() {
+  const s = await jget('/api/stats');
+  document.getElementById('s-total').textContent = fmtNum(s.total);
+  document.getElementById('s-apps').textContent  = fmtNum(s.totalApps);
+  document.getElementById('s-int').textContent   = fmtNum(s.funnel.interviews);
+  document.getElementById('s-rr').textContent    = s.funnel.responseRate + '%';
+
+  // Funnel
+  new Chart(document.getElementById('funnel'), {
+    type: 'bar',
+    data: {
+      labels: ['Applied','Interviews','Offers'],
+      datasets: [{ label: 'Count', data: [s.funnel.applied, s.funnel.interviews, s.funnel.offers], backgroundColor: ['#3b82f6','#f59e0b','#10b981'] }]
+    },
+    options: { indexAxis: 'y', plugins: { legend: { display: false } }, scales: { x: { beginAtZero: true } } },
+  });
+
+  // Org type donut
+  new Chart(document.getElementById('org-chart'), {
+    type: 'doughnut',
+    data: {
+      labels: s.byOrgType.map(r => r.org_type || '(unknown)'),
+      datasets: [{ data: s.byOrgType.map(r => r.n), backgroundColor: ['#3b82f6','#8b5cf6','#ef4444','#10b981','#f59e0b','#94a3b8'] }],
+    },
+    options: { plugins: { legend: { position: 'bottom' } } },
+  });
+
+  renderTable(document.getElementById('t-ats'),
+    s.byAts.slice(0, 12).map(r => [r.ats_platform || '(unknown)', fmtNum(r.n)]),
+    ['ATS', 'Jobs']);
+  renderTable(document.getElementById('t-source'),
+    s.bySource.slice(0, 12).map(r => [r.source_domain || '(unknown)', fmtNum(r.n)]),
+    ['Source', 'Jobs']);
+  renderTable(document.getElementById('t-state'),
+    s.byState.map(r => [r.state, fmtNum(r.n)]),
+    ['State', 'Jobs']);
+}
+load().catch(e => console.error(e));
+</script>
+</body>
+</html>

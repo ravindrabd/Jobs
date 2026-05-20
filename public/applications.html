@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Tracker — Applications</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>Job Tracker</h1>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/board.html">Job Board</a>
+      <a href="/applications.html" class="active">Applications</a>
+      <a href="/resume.html">My Resume</a>
+      <a href="/stats.html">Stats</a>
+      <a href="/removed.html">Removed</a>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h2>Applications</h2>
+        <div class="last-scraped" id="last-scraped"></div>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()">☾ Dark</button>
+    </div>
+
+    <div id="reminder-banner" class="banner"></div>
+
+    <div class="kpis" style="grid-template-columns: repeat(5, 1fr);">
+      <div class="kpi purple"><div class="label">Saved</div><div class="value" id="c-saved">–</div></div>
+      <div class="kpi accent"><div class="label">Applied</div><div class="value" id="c-applied">–</div></div>
+      <div class="kpi yellow"><div class="label">Interview</div><div class="value" id="c-interview">–</div></div>
+      <div class="kpi green"><div class="label">Offer</div><div class="value" id="c-offer">–</div></div>
+      <div class="kpi red"><div class="label">Rejected</div><div class="value" id="c-rejected">–</div></div>
+    </div>
+
+    <div class="kanban" id="kanban">
+      <div class="kanban-col" data-status="saved"><h3>Saved <span class="count" id="n-saved">0</span></h3><div data-list></div></div>
+      <div class="kanban-col" data-status="applied"><h3>Applied <span class="count" id="n-applied">0</span></h3><div data-list></div></div>
+      <div class="kanban-col" data-status="interview"><h3>Interview <span class="count" id="n-interview">0</span></h3><div data-list></div></div>
+      <div class="kanban-col" data-status="offer"><h3>Offer <span class="count" id="n-offer">0</span></h3><div data-list></div></div>
+      <div class="kanban-col" data-status="rejected"><h3>Rejected <span class="count" id="n-rejected">0</span></h3><div data-list></div></div>
+    </div>
+  </main>
+</div>
+
+<div id="modal-bg" class="modal-bg"><div class="modal"></div></div>
+
+<script src="/js/common.js"></script>
+<script>
+const STATUSES = ['saved','applied','interview','offer','rejected'];
+
+function daysAgo(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso); if (Number.isNaN(t)) return '';
+  const d = Math.floor((Date.now() - t) / 86400000);
+  if (d <= 0) return 'today';
+  return d + ' day' + (d === 1 ? '' : 's') + ' ago';
+}
+
+function cardHtml(a) {
+  return `
+    <div class="kanban-card" data-id="${a.id}">
+      <div class="t">${escapeHtml(a.title)}</div>
+      <div class="o">${escapeHtml(a.organization || '—')} · ${escapeHtml(a.location || '—')}</div>
+      <div class="when">
+        ${a.applied_date ? 'Applied ' + a.applied_date + ' (' + escapeHtml(daysAgo(a.applied_date)) + ')' : ''}
+      </div>
+      <textarea data-field="notes" placeholder="Notes…">${escapeHtml(a.notes || '')}</textarea>
+      <div class="row">
+        <label style="font-size:11px;color:var(--muted);">Status</label>
+        <select data-field="status">
+          ${STATUSES.map(s => `<option value="${s}" ${s===a.status?'selected':''}>${s}</option>`).join('')}
+        </select>
+        <label style="font-size:11px;color:var(--muted);">Follow-up</label>
+        <input data-field="follow_up_date" type="date" value="${a.follow_up_date || ''}">
+      </div>
+      <div class="row">
+        <a class="btn small" href="${a.url}" target="_blank" rel="noopener">Open posting →</a>
+        <button class="btn small danger" onclick="removeApp(${a.id})">Remove</button>
+      </div>
+    </div>
+  `;
+}
+
+async function load() {
+  const data = await jget('/api/applications');
+  const apps = data.applications;
+  const buckets = Object.fromEntries(STATUSES.map(s => [s, []]));
+  for (const a of apps) (buckets[a.status] || buckets.saved).push(a);
+
+  for (const s of STATUSES) {
+    const list = document.querySelector(`.kanban-col[data-status="${s}"] [data-list]`);
+    list.innerHTML = buckets[s].map(cardHtml).join('') || '<div class="empty" style="padding: 20px 8px;font-size:12px;">empty</div>';
+    document.getElementById('n-' + s).textContent = buckets[s].length;
+    document.getElementById('c-' + s).textContent = fmtNum(buckets[s].length);
+  }
+  attachHandlers();
+}
+
+function attachHandlers() {
+  document.querySelectorAll('.kanban-card').forEach(card => {
+    const id = card.dataset.id;
+    card.querySelectorAll('[data-field]').forEach(input => {
+      input.addEventListener('change', () => save(id, input.dataset.field, input.value));
+      if (input.tagName === 'TEXTAREA') input.addEventListener('blur', () => save(id, input.dataset.field, input.value));
+    });
+  });
+}
+
+async function save(id, field, value) {
+  try {
+    await jput('/api/applications/' + id, { [field]: value });
+    if (field === 'status') load();
+  } catch (e) { console.error(e); }
+}
+
+async function removeApp(id) {
+  if (!confirm('Remove this from your tracker? The job stays in the board.')) return;
+  await jdel('/api/applications/' + id);
+  load();
+}
+
+load().catch(e => console.error(e));
+</script>
+</body>
+</html>

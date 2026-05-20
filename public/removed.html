@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Tracker — Removed</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>Job Tracker</h1>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/board.html">Job Board</a>
+      <a href="/applications.html">Applications</a>
+      <a href="/resume.html">My Resume</a>
+      <a href="/stats.html">Stats</a>
+      <a href="/removed.html" class="active">Removed</a>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h2>Removed jobs</h2>
+        <div class="last-scraped" id="last-scraped"></div>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()">☾ Dark</button>
+    </div>
+
+    <div id="reminder-banner" class="banner"></div>
+
+    <div id="results-info" style="color: var(--muted); margin-bottom: 10px; font-size: 13px;"></div>
+    <div class="jobs-grid" id="jobs"></div>
+  </main>
+</div>
+
+<div id="modal-bg" class="modal-bg"><div class="modal"></div></div>
+
+<script src="/js/common.js"></script>
+<script>
+function sourceTag(ats) {
+  switch ((ats || '').toLowerCase()) {
+    case 'higheredjobs': return { slug: 'higheredjobs', label: 'via HigherEdJobs' };
+    case 'chronicle':    return { slug: 'chronicle',    label: 'via Chronicle' };
+    case 'us-rse':       return { slug: 'us-rse',       label: 'via us-rse.org' };
+    case 'idealist':     return { slug: 'idealist',     label: 'via Idealist' };
+    case 'himss':        return { slug: 'himss',        label: 'via HIMSS JobMine' };
+    default:             return { slug: 'direct',       label: 'Direct' };
+  }
+}
+
+function jobCardHtml(j) {
+  const remoteBadge = j.remote === 'yes' ? '<span class="badge remote-yes">Remote</span>'
+                    : j.remote === 'hybrid' ? '<span class="badge remote-hybrid">Hybrid</span>'
+                    : '<span class="badge remote-no">On-site</span>';
+  const src = sourceTag(j.ats_platform);
+  // removed_at is "YYYY-MM-DD HH:MM:SS" in UTC (SQLite datetime('now')). Append "Z" for ISO parse.
+  const removedIso = j.removed_at ? j.removed_at.replace(' ', 'T') + 'Z' : null;
+  return `
+    <div class="job-card" data-job-id="${j.id}" style="opacity:0.85;">
+      <div>
+        <div class="job-title">${escapeHtml(j.title)}</div>
+        <div class="job-meta">
+          <span class="org-name">${escapeHtml(j.organization || '—')}</span>
+          <span>${escapeHtml(j.location || '—')}</span>
+          ${remoteBadge}
+          <span class="badge source-${src.slug}">${src.label}</span>
+          ${ageBadge(j.posted_date_iso, 'Posted')}
+          ${ageBadge(removedIso, 'Removed')}
+        </div>
+      </div>
+      <div class="job-actions">
+        <a class="btn" href="${j.url}" target="_blank" rel="noopener">Open posting</a>
+        <button class="btn primary small" onclick="restore(${j.id})">Restore</button>
+      </div>
+    </div>
+  `;
+}
+
+async function load() {
+  const data = await jget('/api/jobs/removed');
+  document.getElementById('results-info').textContent = `${fmtNum(data.total)} removed job${data.total === 1 ? '' : 's'}`;
+  const el = document.getElementById('jobs');
+  if (!data.jobs.length) { el.innerHTML = '<div class="empty">No removed jobs. Hit ✕ Remove on any card in the Job Board to send it here.</div>'; return; }
+  el.innerHTML = data.jobs.map(jobCardHtml).join('');
+}
+
+async function restore(jobId) {
+  try {
+    await jpost('/api/jobs/' + jobId + '/restore', {});
+    const card = document.querySelector('.job-card[data-job-id="' + jobId + '"]');
+    if (card) card.remove();
+    // Update the count in the header
+    load();
+  } catch (e) {
+    alert('Could not restore: ' + e.message);
+  }
+}
+
+load().catch(e => { console.error(e); document.getElementById('jobs').innerHTML = '<div class="empty">Failed to load removed jobs.</div>'; });
+</script>
+</body>
+</html>

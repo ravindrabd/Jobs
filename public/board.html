@@ -1,0 +1,551 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Tracker — Job Board</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>Job Tracker</h1>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/board.html" class="active">Job Board</a>
+      <a href="/applications.html">Applications</a>
+      <a href="/resume.html">My Resume</a>
+      <a href="/stats.html">Stats</a>
+      <a href="/removed.html">Removed</a>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h2>Job Board</h2>
+        <div class="last-scraped" id="last-scraped"></div>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()">☾ Dark</button>
+    </div>
+
+    <div id="reminder-banner" class="banner"></div>
+
+    <div class="tabs" id="tabs">
+      <a href="#" data-org="all" class="active">All</a>
+      <a href="#" data-org="fresh" id="tab-fresh">Fresh Jobs <span id="fresh-count" style="color:var(--muted);"></span></a>
+      <a href="#" data-org="university">Universities</a>
+      <a href="#" data-org="ngo">NGOs</a>
+      <a href="#" data-org="hospital">Hospitals</a>
+      <a href="#" data-org="low_competition">Low Competition</a>
+      <a href="#" data-org="other">Other</a>
+    </div>
+
+    <div class="filters">
+      <div>
+        <label>Search title / organization</label>
+        <input id="f-q" type="search" placeholder="e.g. data engineer, mit, remote…">
+      </div>
+      <div>
+        <label>Remote</label>
+        <select id="f-remote"><option value="all">All</option><option value="yes">Remote</option><option value="hybrid">Hybrid</option><option value="no">On-site</option></select>
+      </div>
+      <div>
+        <label>Posted within</label>
+        <select id="f-posted"><option value="all">Any</option><option value="today">Today</option><option value="fresh">Fresh (≤2d)</option><option value="3">3 days</option><option value="7">7 days</option><option value="30">30 days</option></select>
+      </div>
+      <div>
+        <label>ATS</label>
+        <select id="f-ats"><option value="all">All</option><option value="workday">Workday</option><option value="greenhouse">Greenhouse</option><option value="lever">Lever</option><option value="icims">iCIMS</option><option value="jobvite">Jobvite</option><option value="other">Other</option></select>
+      </div>
+      <div>
+        <label>Status</label>
+        <select id="f-status"><option value="all">All</option><option value="not_applied">Not applied</option><option value="saved">Saved</option><option value="applied">Applied</option></select>
+      </div>
+      <div>
+        <label>Sort</label>
+        <select id="f-sort"><option value="newest">Newest first</option><option value="match">Best match first</option><option value="relevance">Relevance</option><option value="oldest">Oldest first</option><option value="org">Organization A-Z</option></select>
+      </div>
+    </div>
+
+    <!-- Universities-only filters: source toggles + sort buttons. Hidden on other tabs. -->
+    <div class="filters" id="uni-filters" style="display:none; grid-template-columns: 1fr; gap: 14px;">
+      <div>
+        <label style="display:block; margin-bottom: 6px;">Sources</label>
+        <div id="uni-source-toggles" style="display: flex; gap: 6px; flex-wrap: wrap;"></div>
+      </div>
+      <div>
+        <label style="display:block; margin-bottom: 6px;">Sort</label>
+        <div id="uni-sort-buttons" style="display: flex; gap: 6px; flex-wrap: wrap;">
+          <button class="btn small" data-sort="newest">Newest First</button>
+          <button class="btn small" data-sort="match">Best Match</button>
+          <button class="btn small" data-sort="relevance">Relevance</button>
+        </div>
+      </div>
+    </div>
+
+    <div class="filters" id="match-filters" style="display:none; grid-template-columns: 1fr 1fr auto auto;">
+      <div>
+        <label>Min match %  (<span id="f-match-val">0</span>%)</label>
+        <input id="f-min-match" type="range" min="0" max="100" step="5" value="0" style="width:100%;">
+      </div>
+      <div>
+        <label>Min skill matches</label>
+        <select id="f-min-skills"><option value="0">0 (show all)</option><option value="1">1+</option><option value="2" selected>2+</option><option value="3">3+</option><option value="5">5+</option></select>
+      </div>
+      <div style="align-self:end; color:var(--muted); font-size:12px;">Match-aware filters appear because a resume is loaded.</div>
+      <div style="align-self:end;">
+        <a href="/resume.html" class="btn small">Edit resume</a>
+      </div>
+    </div>
+
+    <div id="results-info" style="color: var(--muted); margin-bottom: 10px; font-size: 13px;"></div>
+    <div class="jobs-grid" id="jobs"></div>
+    <div class="pagination" id="pager"></div>
+  </main>
+</div>
+
+<div id="modal-bg" class="modal-bg"><div class="modal" style="max-width: 720px;"></div></div>
+
+<script src="/js/common.js"></script>
+<script>
+let state = { q: '', org_type: 'all', remote: 'all', posted_within: 'all', ats_platform: 'all', status: 'all', sort: 'newest', min_match: 0, min_skills: 0, source: '', page: 1 };
+let hasResume = false;
+let universityTotal = 0;
+let uniSourceCounts = {};
+
+// Parse URL params (e.g. /board.html?org_type=hospital)
+function syncFromUrl() {
+  const u = new URLSearchParams(location.search);
+  for (const k of Object.keys(state)) if (u.has(k)) state[k] = u.get(k);
+  document.getElementById('f-q').value = state.q;
+  document.getElementById('f-remote').value = state.remote;
+  document.getElementById('f-posted').value = state.posted_within;
+  document.getElementById('f-ats').value = state.ats_platform;
+  document.getElementById('f-status').value = state.status;
+  document.getElementById('f-sort').value = state.sort;
+  document.getElementById('f-min-match').value = state.min_match;
+  document.getElementById('f-match-val').textContent = state.min_match;
+  document.getElementById('f-min-skills').value = state.min_skills;
+  document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.org === state.org_type));
+}
+
+async function detectResume() {
+  try {
+    const { resume } = await jget('/api/resume');
+    if (resume && resume.parsed) {
+      hasResume = true;
+      document.getElementById('match-filters').style.display = 'grid';
+      // Default behavior when resume is loaded: sort by match, require 2+ matched skills.
+      const u = new URLSearchParams(location.search);
+      if (!u.has('sort'))       { state.sort = 'match';  document.getElementById('f-sort').value = 'match'; }
+      // ≥1 matched skill is the new minimum — show me anything with at least one overlap.
+      if (!u.has('min_skills')) { state.min_skills = 1;  document.getElementById('f-min-skills').value = '1'; }
+    }
+  } catch { /* fine */ }
+}
+
+async function loadUniMeta() {
+  try {
+    const d = await jget('/api/dashboard');
+    universityTotal = d.counts.universities || 0;
+    uniSourceCounts = (d.sourcesByOrgType || {}).university || {};
+  } catch { /* keep zeros */ }
+}
+
+async function refreshFreshCount() {
+  try {
+    const d = await jget('/api/jobs?posted_within=fresh&limit=1');
+    const el = document.getElementById('fresh-count');
+    if (el) el.textContent = '· ' + fmtNum(d.total);
+  } catch {}
+}
+
+function renderUniFilters() {
+  const isUni = state.org_type === 'university';
+  document.getElementById('uni-filters').style.display = isUni ? 'grid' : 'none';
+  if (!isUni) return;
+
+  const labelToSlug = { 'via HigherEdJobs': 'higheredjobs', 'via us-rse.org': 'us-rse', 'via Chronicle': 'chronicle', 'Direct': 'direct' };
+  const orderedLabels = ['via HigherEdJobs', 'via us-rse.org', 'via Chronicle', 'Direct'].filter(l => (uniSourceCounts[l] || 0) > 0);
+  const selectedSlugs = new Set(state.source ? state.source.split(',').filter(Boolean) : Object.values(labelToSlug));
+
+  const togglesEl = document.getElementById('uni-source-toggles');
+  togglesEl.innerHTML = orderedLabels.map(label => {
+    const slug = labelToSlug[label];
+    const on = selectedSlugs.has(slug);
+    return `<button class="btn small ${on ? 'primary' : ''}" data-source="${slug}" style="opacity:${on?1:0.6};">
+      ${escapeHtml(label)} · ${uniSourceCounts[label] || 0}
+    </button>`;
+  }).join('');
+
+  const sortButtons = document.querySelectorAll('#uni-sort-buttons button');
+  sortButtons.forEach(b => {
+    const isActive = b.dataset.sort === state.sort;
+    b.classList.toggle('primary', isActive);
+    b.style.opacity = isActive ? 1 : 0.6;
+    if (b.dataset.sort === 'match' && !hasResume) {
+      b.disabled = true;
+      b.title = 'Upload resume first';
+      b.style.opacity = 0.4;
+      b.style.cursor = 'not-allowed';
+    } else {
+      b.disabled = false;
+      b.title = '';
+      b.style.cursor = 'pointer';
+    }
+  });
+}
+
+function toggleSource(slug) {
+  const all = ['higheredjobs','us-rse','chronicle','direct'];
+  const current = state.source ? state.source.split(',').filter(Boolean) : all.slice();
+  let next;
+  if (current.includes(slug)) {
+    next = current.filter(s => s !== slug);
+    if (next.length === 0) next = all.slice();  // never empty — fall back to "show all"
+  } else {
+    next = current.concat([slug]);
+  }
+  // If user has selected all, clear the param entirely.
+  state.source = (next.length === all.length && all.every(s => next.includes(s))) ? '' : next.join(',');
+  state.page = 1;
+  updateUrl();
+  renderUniFilters();
+  load();
+}
+
+async function load() {
+  const params = new URLSearchParams({ ...state, page: state.page, limit: 50 });
+  const data = await jget('/api/jobs?' + params);
+  renderJobs(data);
+}
+
+function renderJobs(data) {
+  const el = document.getElementById('jobs');
+  if (!data.jobs.length) { el.innerHTML = '<div class="empty">No jobs match these filters.</div>'; document.getElementById('pager').innerHTML = ''; document.getElementById('results-info').textContent = '0 jobs'; return; }
+  el.innerHTML = data.jobs.map(jobCardHtml).join('');
+  let info = `${fmtNum(data.total)} jobs · page ${data.page} of ${Math.max(1, Math.ceil(data.total/data.limit))}`;
+  if (state.org_type === 'university' && universityTotal && data.total < universityTotal) {
+    info = `Showing ${fmtNum(data.total)} of ${fmtNum(universityTotal)} university jobs · page ${data.page} of ${Math.max(1, Math.ceil(data.total/data.limit))}`;
+  }
+  document.getElementById('results-info').textContent = info;
+  renderPager(data);
+}
+
+function matchBadge(j) {
+  if (!hasResume || j.match_score == null) return '';
+  const s = j.match_score;
+  let cls, label;
+  if (s >= 80)      { cls = 'remote-yes';        label = 'Strong match'; }
+  else if (s >= 50) { cls = 'remote-hybrid';     label = 'Good match'; }
+  else if (s >= 20) { cls = 'competition-medium';label = 'Partial match'; }
+  else if ((tryParse(j.matched_skills) || []).length >= 2) { cls = 'remote-no'; label = 'Skill overlap'; }
+  else              { cls = 'remote-no';         label = 'Low match'; }
+  return `<span class="badge ${cls}" title="${label}">${s}% · ${label}</span>`;
+}
+
+function tryParse(s) { try { return JSON.parse(s); } catch { return null; } }
+
+function skillPillsRow(j) {
+  if (!hasResume) return '';
+  const matched = tryParse(j.matched_skills) || [];
+  const missing = tryParse(j.missing_skills) || [];
+  if (!matched.length && !missing.length) return '';
+  const shownMatched = matched.slice(0, 6).map(s => `<span class="badge remote-yes" style="margin-right:2px;">✓ ${escapeHtml(s)}</span>`).join('');
+  const moreMatched = matched.length > 6 ? `<span style="color:var(--muted);font-size:11px;">+${matched.length-6}</span>` : '';
+  const shownMissing = missing.slice(0, 4).map(s => `<span class="badge remote-no" style="margin-right:2px;">✗ ${escapeHtml(s)}</span>`).join('');
+  const moreMissing = missing.length > 4 ? `<span style="color:var(--muted);font-size:11px;">+${missing.length-4}</span>` : '';
+  return `<div style="margin-top: 6px; display:flex; flex-wrap:wrap; gap:4px; align-items:center;">${shownMatched}${moreMatched}${shownMissing}${moreMissing}</div>`;
+}
+
+// Colored dot for freshness — green/yellow/gray for today/yesterday/2-days-ago.
+function freshDot(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso); if (Number.isNaN(t)) return '';
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0)  return '<span title="Posted today" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#10b981;margin-right:6px;vertical-align:middle;"></span>';
+  if (days === 1) return '<span title="Posted yesterday" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-right:6px;vertical-align:middle;"></span>';
+  if (days === 2) return '<span title="Posted 2 days ago" style="display:inline-block;width:8px;height:8px;border-radius:50%;background:#9ca3af;margin-right:6px;vertical-align:middle;"></span>';
+  return '';
+}
+
+// Countdown badge — tells the user how many days a job has left in Fresh Jobs.
+// Auto-disappears after day 3 (when the row no longer matches posted_within=fresh).
+function freshCountdown(iso) {
+  if (!iso) return '';
+  const t = Date.parse(iso); if (Number.isNaN(t)) return '';
+  const days = Math.floor((Date.now() - t) / 86400000);
+  if (days <= 0)  return '<span class="badge fresh-cd-today" title="Posted today">⏳ expires from Fresh in 2 days</span>';
+  if (days === 1) return '<span class="badge fresh-cd-yesterday" title="Posted yesterday">⏳ expires from Fresh tomorrow</span>';
+  if (days === 2) return '<span class="badge fresh-cd-last" title="Posted 2 days ago">⏳ last day in Fresh Jobs</span>';
+  return '';
+}
+
+// Map ats_platform → ({slug, label}) for the source pill colour + text.
+function sourceTag(ats) {
+  switch ((ats || '').toLowerCase()) {
+    case 'higheredjobs': return { slug: 'higheredjobs', label: 'via HigherEdJobs' };
+    case 'chronicle':    return { slug: 'chronicle',    label: 'via Chronicle' };
+    case 'us-rse':       return { slug: 'us-rse',       label: 'via us-rse.org' };
+    case 'idealist':     return { slug: 'idealist',     label: 'via Idealist' };
+    case 'himss':        return { slug: 'himss',        label: 'via HIMSS JobMine' };
+    default:             return { slug: 'direct',       label: 'Direct' };
+  }
+}
+
+function jobCardHtml(j) {
+  const remoteBadge = j.remote === 'yes' ? '<span class="badge remote-yes">Remote</span>'
+                    : j.remote === 'hybrid' ? '<span class="badge remote-hybrid">Hybrid</span>'
+                    : '<span class="badge remote-no">On-site</span>';
+  const compBadge = j.competition_level ? `<span class="badge competition-${j.competition_level}">${j.competition_level}</span>` : '';
+  const src = sourceTag(j.ats_platform);
+  const sourceBadge = `<span class="badge source-${src.slug}" title="${src.label}">${src.label}</span>`;
+  const status = j.applied?.status;
+  const statusBadge = status ? `<span class="badge status-${status}">${status}</span>` : '';
+  const actions = status
+    ? `<span class="badge status-${status}">${status}</span><button class="btn small" onclick="event.stopPropagation(); openApplyModal(${j.id})">Edit</button>`
+    : `<button class="btn small" onclick="event.stopPropagation(); saveOnly(${j.id})">Save</button><button class="btn primary small" onclick="event.stopPropagation(); openApplyModal(${j.id})">Mark Applied</button>`;
+  const matchEl = matchBadge(j);
+  const detailsBtn = hasResume ? `<button class="btn small" onclick="event.stopPropagation(); openMatchPanel(${j.id})">Match details</button>` : '';
+
+  return `
+    <div class="job-card" data-job-id="${j.id}" onclick="openMatchPanel(${j.id})" style="cursor:${hasResume?'pointer':'default'};">
+      <div>
+        <div class="job-title">${freshDot(j.posted_date_iso)}${escapeHtml(j.title)} ${matchEl}</div>
+        <div class="job-meta">
+          <span class="org-name">${escapeHtml(j.organization || '—')}</span>
+          <span>${escapeHtml(j.location || '—')}</span>
+          ${remoteBadge}
+          ${sourceBadge}
+          ${ageBadge(j.posted_date_iso, 'Posted')}
+          ${freshCountdown(j.posted_date_iso)}
+          ${j.salary ? `<span style="color:var(--green); font-weight:600;">${escapeHtml(j.salary)}</span>` : ''}
+          ${compBadge} ${statusBadge}
+        </div>
+        ${skillPillsRow(j)}
+      </div>
+      <div class="job-actions">
+        <a class="btn primary" href="${j.url}" target="_blank" rel="noopener" onclick="event.stopPropagation();">Apply →</a>
+        ${detailsBtn}
+        ${actions}
+        <button class="btn small btn-remove" onclick="event.stopPropagation(); confirmRemove(${j.id})">✕ Remove</button>
+      </div>
+    </div>
+  `;
+}
+
+function confirmRemove(jobId) {
+  showModal(`
+    <h3>Remove this job?</h3>
+    <p class="sub">It won't show in your job board. You can restore it later from the Removed page.</p>
+    <div class="actions">
+      <button class="btn" onclick="hideModal()">Cancel</button>
+      <button class="btn danger" onclick="doRemove(${jobId})">Yes, remove</button>
+    </div>
+  `);
+}
+async function doRemove(jobId) {
+  try {
+    await jpost('/api/jobs/' + jobId + '/remove', {});
+    hideModal();
+    // Optimistic UI: drop the card immediately without a full reload.
+    const card = document.querySelector('.job-card[data-job-id="' + jobId + '"]');
+    if (card) card.remove();
+  } catch (e) {
+    hideModal();
+    alert('Could not remove: ' + e.message);
+  }
+}
+
+function renderPager(data) {
+  const totalPages = Math.max(1, Math.ceil(data.total / data.limit));
+  const p = data.page;
+  const el = document.getElementById('pager');
+  if (totalPages === 1) { el.innerHTML = ''; return; }
+  el.innerHTML = `
+    <button class="btn" ${p<=1?'disabled':''} onclick="gotoPage(${p-1})">← Prev</button>
+    <span class="info">Page ${p} / ${totalPages}</span>
+    <button class="btn" ${p>=totalPages?'disabled':''} onclick="gotoPage(${p+1})">Next →</button>
+  `;
+}
+function gotoPage(n) { state.page = n; load(); window.scrollTo({top:0, behavior:'smooth'}); }
+
+function setFilter(name, val) { state[name] = val; state.page = 1; updateUrl(); load(); }
+// Fresh Jobs tab is implemented as posted_within=fresh (last 2 days, inclusive of today).
+// It coexists with org_type — selecting Fresh resets org_type to "all", and vice versa.
+function updateUrl() {
+  const u = new URLSearchParams();
+  for (const [k,v] of Object.entries(state)) {
+    if (v == null || v === '' || v === 'all') continue;
+    if (k === 'page' && v === 1) continue;
+    if ((k === 'min_match' || k === 'min_skills') && (v === 0 || v === '0')) continue;
+    u.set(k, v);
+  }
+  history.replaceState(null, '', '/board.html' + (u.toString() ? '?' + u : ''));
+}
+
+document.getElementById('tabs').addEventListener('click', (e) => {
+  const a = e.target.closest('a'); if (!a) return; e.preventDefault();
+  document.querySelectorAll('#tabs a').forEach(x => x.classList.remove('active'));
+  a.classList.add('active');
+  // Fresh Jobs is implemented as posted_within=fresh (today + last 2 days) over all org_types.
+  if (a.dataset.org === 'fresh') {
+    state.org_type = 'all';
+    state.posted_within = 'fresh';
+    document.getElementById('f-posted').value = 'fresh';
+  } else {
+    state.org_type = a.dataset.org;
+    if (state.posted_within === 'fresh') {
+      state.posted_within = 'all';
+      document.getElementById('f-posted').value = 'all';
+    }
+  }
+  state.page = 1;
+  renderUniFilters();
+  updateUrl(); load();
+});
+
+// Universities-only source toggles + sort buttons (delegated)
+document.getElementById('uni-source-toggles').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-source]'); if (!b) return;
+  toggleSource(b.dataset.source);
+});
+document.getElementById('uni-sort-buttons').addEventListener('click', (e) => {
+  const b = e.target.closest('button[data-sort]'); if (!b || b.disabled) return;
+  state.sort = b.dataset.sort; state.page = 1;
+  document.getElementById('f-sort').value = b.dataset.sort;
+  updateUrl();
+  renderUniFilters();
+  load();
+});
+let t;
+document.getElementById('f-q').addEventListener('input', (e) => { clearTimeout(t); t = setTimeout(() => setFilter('q', e.target.value), 250); });
+document.getElementById('f-remote').addEventListener('change', e => setFilter('remote', e.target.value));
+document.getElementById('f-posted').addEventListener('change', e => setFilter('posted_within', e.target.value));
+document.getElementById('f-ats').addEventListener('change', e => setFilter('ats_platform', e.target.value));
+document.getElementById('f-status').addEventListener('change', e => setFilter('status', e.target.value));
+document.getElementById('f-sort').addEventListener('change', e => setFilter('sort', e.target.value));
+document.getElementById('f-min-match').addEventListener('input', e => {
+  document.getElementById('f-match-val').textContent = e.target.value;
+});
+document.getElementById('f-min-match').addEventListener('change', e => setFilter('min_match', parseInt(e.target.value, 10)));
+document.getElementById('f-min-skills').addEventListener('change', e => setFilter('min_skills', parseInt(e.target.value, 10)));
+
+// ---- Match details side panel ----
+async function openMatchPanel(jobId) {
+  if (!hasResume) return; // no panel if no resume
+  showModal(`<h3>Loading match…</h3>`);
+  let m;
+  try { m = await jget('/api/jobs/' + jobId + '/match'); }
+  catch (e) { showModal(`<h3>Error</h3><p>${escapeHtml(e.message)}</p><div class="actions"><button class="btn" onclick="hideModal()">Close</button></div>`); return; }
+  let t;
+  try { t = await jpost('/api/jobs/' + jobId + '/tailor', {}); } catch { t = null; }
+
+  const bd = m.breakdown;
+  const matched = m.matched_skills || [];
+  const missing = m.missing_skills || [];
+  const matchedPills = matched.map(s => `<span class="badge remote-yes" style="margin:2px;">✓ ${escapeHtml(s)}</span>`).join(' ') || '<span style="color:var(--muted);">none</span>';
+  const missingPills = missing.map(s => `<span class="badge remote-no" style="margin:2px;">✗ ${escapeHtml(s)}</span>`).join(' ') || '<span style="color:var(--muted);">none</span>';
+  const emphasize = (t?.bullets_to_emphasize || matched).slice(0, 8);
+
+  showModal(`
+    <h3>${escapeHtml(m.job.title)}</h3>
+    <p class="sub">${escapeHtml(m.job.organization || '')} · ${escapeHtml(m.job.location || '')} · ${escapeHtml(m.job.ats_platform || '')}</p>
+
+    <div class="tabs" style="margin-top: 8px;">
+      <a href="#" class="active" data-tab="break" onclick="switchTab(event,'break')">Match breakdown</a>
+      <a href="#" data-tab="tailor" onclick="switchTab(event,'tailor')">Resume edit checklist</a>
+    </div>
+
+    <div id="tab-break">
+      <div style="display:grid; grid-template-columns: 1fr 1fr 1fr; gap:8px; margin-top:14px;">
+        <div class="kpi accent" style="padding:10px;"><div class="label">Match %</div><div class="value" style="font-size:26px;">${m.score}%</div><div class="sub">${m.label}</div></div>
+        <div class="kpi green" style="padding:10px;"><div class="label">Skills matched</div><div class="value" style="font-size:26px;">${bd.skills.matched}</div><div class="sub">of ${bd.skills.total} found in this JD</div></div>
+        <div class="kpi red" style="padding:10px;"><div class="label">Skills missing</div><div class="value" style="font-size:26px;">${missing.length}</div><div class="sub">add these to your resume</div></div>
+      </div>
+      <h4 style="margin-top:14px; margin-bottom:6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Matched skills (${matched.length})</h4>
+      <div>${matchedPills}</div>
+      <h4 style="margin-top:14px; margin-bottom:6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Resume gaps — missing from your resume (${missing.length})</h4>
+      <div>${missingPills}</div>
+    </div>
+
+    <div id="tab-tailor" style="display:none;">
+      <p class="sub" style="margin-top:14px;">Local checklist to tailor your resume for this job. No AI — straight from the keyword diff.</p>
+      <h4 style="margin-top:14px; margin-bottom:6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Add these keywords to your resume</h4>
+      <div id="copy-target">${missing.map(s => '• ' + s).join('\n') || '(no missing keywords)'}</div>
+      <h4 style="margin-top:14px; margin-bottom:6px; font-size:12px; color:var(--muted); text-transform:uppercase; letter-spacing:0.5px;">Emphasize these (you already have them, the JD wants them)</h4>
+      <div>${emphasize.map(s => `<span class="badge remote-yes" style="margin:2px;">${escapeHtml(s)}</span>`).join(' ') || '<span style="color:var(--muted);">none</span>'}</div>
+      <button class="btn primary" style="margin-top:14px;" onclick="copyChecklist()">Copy missing-keywords list</button>
+    </div>
+
+    <div class="actions">
+      <a class="btn" href="${m.job.url}" target="_blank" rel="noopener">Open posting</a>
+      <button class="btn primary" onclick="hideModal()">Close</button>
+    </div>
+  `);
+  // Pre-format the copy target as plaintext (replace innerHTML with <pre>-style content)
+  const t2 = document.getElementById('copy-target');
+  if (t2) { t2.style.whiteSpace = 'pre-wrap'; t2.style.fontSize = '13px'; t2.style.padding = '8px'; t2.style.background = 'var(--bg)'; t2.style.borderRadius = '6px'; t2.style.border = '1px solid var(--border)'; }
+}
+
+function switchTab(e, name) {
+  e.preventDefault();
+  document.querySelectorAll('.modal .tabs a').forEach(a => a.classList.toggle('active', a.dataset.tab === name));
+  document.getElementById('tab-break').style.display = name === 'break' ? '' : 'none';
+  document.getElementById('tab-tailor').style.display = name === 'tailor' ? '' : 'none';
+}
+
+function copyChecklist() {
+  const text = document.getElementById('copy-target').innerText;
+  navigator.clipboard?.writeText(text).then(() => {
+    const b = event.target; const orig = b.textContent;
+    b.textContent = 'Copied ✓'; setTimeout(() => b.textContent = orig, 1500);
+  });
+}
+
+// --- Save / Apply actions ---
+async function saveOnly(jobId) {
+  await jpost('/api/applications', { job_id: jobId, status: 'saved' });
+  load();
+}
+
+function openApplyModal(jobId) {
+  const defaultFollow = new Date(); defaultFollow.setDate(defaultFollow.getDate() + 7);
+  const fStr = defaultFollow.toISOString().slice(0,10);
+  showModal(`
+    <h3>Mark Applied</h3>
+    <p class="sub">Add a quick note and a follow-up reminder. Both optional.</p>
+    <label>Notes</label>
+    <textarea id="m-notes" placeholder="Anything to remember about this application…"></textarea>
+    <label>Follow-up reminder date</label>
+    <input id="m-follow" type="date" value="${fStr}">
+    <div class="actions">
+      <button class="btn" onclick="hideModal()">Cancel</button>
+      <button class="btn primary" onclick="confirmApply(${jobId})">Save</button>
+    </div>
+  `);
+}
+async function confirmApply(jobId) {
+  const notes = document.getElementById('m-notes').value;
+  const follow = document.getElementById('m-follow').value;
+  await jpost('/api/applications', { job_id: jobId, status: 'applied', notes, follow_up_date: follow });
+  hideModal();
+  load();
+}
+
+(async () => {
+  syncFromUrl();
+  await detectResume();
+  await loadUniMeta();
+  await refreshFreshCount();
+  // Highlight Fresh tab if we landed via posted_within=fresh
+  if (state.posted_within === 'fresh') {
+    document.querySelectorAll('#tabs a').forEach(a => a.classList.toggle('active', a.dataset.org === 'fresh'));
+  }
+  renderUniFilters();
+  try { await load(); }
+  catch (e) { console.error(e); document.getElementById('jobs').innerHTML = '<div class="empty">Failed to load jobs.</div>'; }
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Job Tracker — My Resume</title>
+  <link rel="stylesheet" href="/css/style.css">
+</head>
+<body>
+<div class="layout">
+  <aside class="sidebar">
+    <h1>Job Tracker</h1>
+    <nav>
+      <a href="/">Dashboard</a>
+      <a href="/board.html">Job Board</a>
+      <a href="/applications.html">Applications</a>
+      <a href="/resume.html" class="active">My Resume</a>
+      <a href="/stats.html">Stats</a>
+      <a href="/removed.html">Removed</a>
+    </nav>
+  </aside>
+  <main class="main">
+    <div class="page-header">
+      <div>
+        <h2>My Resume</h2>
+        <div class="last-scraped" id="last-scraped"></div>
+      </div>
+      <button class="theme-toggle" onclick="toggleTheme()">☾ Dark</button>
+    </div>
+
+    <div id="reminder-banner" class="banner"></div>
+
+    <div class="chart-card" style="margin-bottom: 18px;">
+      <h3>Upload resume</h3>
+      <p style="color: var(--muted); font-size: 13px; margin: 0 0 12px;">Upload a PDF or paste resume text. Skills, titles, and seniority will be extracted locally — no external API. Match scores recalculate for all jobs automatically.</p>
+
+      <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 18px;">
+        <div>
+          <label style="font-size: 12px; color: var(--muted);">PDF file</label>
+          <input id="pdf-file" type="file" accept="application/pdf" style="width: 100%; padding: 8px; margin-top: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text);">
+          <button class="btn primary" style="margin-top: 10px; width: 100%;" onclick="uploadPdf()">Upload PDF</button>
+        </div>
+        <div>
+          <label style="font-size: 12px; color: var(--muted);">Paste resume text</label>
+          <textarea id="paste-text" placeholder="Paste your resume here…" style="width: 100%; min-height: 100px; padding: 8px; margin-top: 4px; border: 1px solid var(--border); border-radius: 6px; background: var(--bg); color: var(--text); font-family: inherit;"></textarea>
+          <button class="btn primary" style="margin-top: 10px; width: 100%;" onclick="uploadText()">Use pasted text</button>
+        </div>
+      </div>
+
+      <div id="upload-status" style="margin-top: 14px;"></div>
+    </div>
+
+    <div id="parsed-card" class="chart-card" style="display:none;">
+      <h3>Detected from your resume</h3>
+      <div id="parsed-meta" style="display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 16px;"></div>
+      <h4 style="margin: 16px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Skills (<span id="skill-count">0</span>)</h4>
+      <div id="skill-pills" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+      <h4 style="margin: 16px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Job titles</h4>
+      <div id="title-pills" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+      <h4 style="margin: 16px 0 8px; font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.5px;">Domains</h4>
+      <div id="domain-pills" style="display: flex; flex-wrap: wrap; gap: 6px;"></div>
+      <div style="margin-top: 18px;">
+        <a class="btn primary" href="/board.html?sort=match&min_skills=2">View jobs sorted by match →</a>
+      </div>
+    </div>
+  </main>
+</div>
+
+<div id="modal-bg" class="modal-bg"><div class="modal"></div></div>
+
+<script src="/js/common.js"></script>
+<script>
+function pill(text, kind='matched') {
+  return `<span class="badge ${kind === 'matched' ? 'remote-yes' : 'competition-medium'}" style="margin: 0;">${escapeHtml(text)}</span>`;
+}
+
+function renderParsed(p) {
+  document.getElementById('parsed-card').style.display = 'block';
+  document.getElementById('parsed-meta').innerHTML = `
+    <div class="kpi accent"><div class="label">Skills detected</div><div class="value">${p.skills.length}</div></div>
+    <div class="kpi purple"><div class="label">Years exp</div><div class="value">${p.years_experience || '?'}</div></div>
+    <div class="kpi yellow"><div class="label">Seniority</div><div class="value" style="font-size:20px;">${escapeHtml(p.seniority)}</div></div>
+    <div class="kpi green"><div class="label">Domains</div><div class="value" style="font-size:14px;">${(p.domains || []).join(', ') || '—'}</div></div>
+  `;
+  document.getElementById('skill-count').textContent = p.skills.length;
+  document.getElementById('skill-pills').innerHTML = p.skills.map(s => pill(s, 'matched')).join(' ') || '<span style="color:var(--muted);">No skills detected. Try pasting more of your resume.</span>';
+  document.getElementById('title-pills').innerHTML = (p.job_titles || []).map(t => pill(t, 'titles')).join(' ') || '<span style="color:var(--muted);">No titles detected.</span>';
+  document.getElementById('domain-pills').innerHTML = (p.domains || []).map(d => pill(d, 'domains')).join(' ') || '<span style="color:var(--muted);">No domains detected.</span>';
+}
+
+async function uploadPdf() {
+  const inp = document.getElementById('pdf-file');
+  if (!inp.files[0]) { setStatus('Pick a PDF first.', true); return; }
+  const fd = new FormData(); fd.append('file', inp.files[0]);
+  setStatus('Parsing PDF and computing match scores…');
+  try {
+    const r = await fetch('/api/resume/upload', { method: 'POST', body: fd });
+    const d = await r.json();
+    if (!r.ok) throw new Error(d.message || d.error || 'upload failed');
+    setStatus(`Resume uploaded — ${d.parsed.skills.length} skills detected. Recomputed match for ${d.matchSummary.updated} jobs (${d.matchSummary.withMatches} with at least one matching skill).`);
+    renderParsed(d.parsed);
+  } catch (e) { setStatus('Error: ' + e.message, true); }
+}
+
+async function uploadText() {
+  const text = document.getElementById('paste-text').value.trim();
+  if (!text) { setStatus('Paste some resume text first.', true); return; }
+  setStatus('Extracting skills and computing match scores…');
+  try {
+    const d = await jpost('/api/resume/upload', { text });
+    setStatus(`Resume saved — ${d.parsed.skills.length} skills detected. Match recomputed for ${d.matchSummary.updated} jobs.`);
+    renderParsed(d.parsed);
+  } catch (e) { setStatus('Error: ' + e.message, true); }
+}
+
+function setStatus(msg, error=false) {
+  const el = document.getElementById('upload-status');
+  el.innerHTML = `<div class="banner show" style="background:${error ? '#fee2e2' : '#d1fae5'}; color:${error ? '#991b1b' : '#065f46'};">${escapeHtml(msg)}</div>`;
+}
+
+// Load existing resume on page open
+(async () => {
+  try {
+    const { resume } = await jget('/api/resume');
+    if (resume) {
+      setStatus(`Resume on file (uploaded ${new Date(resume.uploaded_at + 'Z').toLocaleString()}) — ${resume.parsed.skills.length} skills detected.`);
+      renderParsed(resume.parsed);
+    }
+  } catch (e) { /* ignore */ }
+})();
+</script>
+</body>
+</html>
