@@ -1,7 +1,11 @@
-FROM node:24-alpine
+FROM node:20-alpine
 
-# Chromium for Playwright + the libs it needs to run on Alpine.
+# better-sqlite3 builds from source on Alpine (musl) — needs python3 + make + g++.
+# Chromium + libs for Playwright.
 RUN apk add --no-cache \
+    python3 \
+    make \
+    g++ \
     chromium \
     nss \
     freetype \

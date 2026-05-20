@@ -7,10 +7,10 @@
 
 import { chromium } from 'playwright';
 import * as cheerio from 'cheerio';
-import { DatabaseSync } from 'node:sqlite';
 import path from 'path';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
+const Database = require('better-sqlite3');
 const { findMatches, isBlockedTitle } = require('./my_skills.js');
 
 const UA = 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
@@ -46,7 +46,7 @@ function parsePostedIso(raw) {
 }
 function norm(s){return (s||'').toLowerCase().replace(/[^\w\s]/g,'').replace(/\s+/g,' ').trim();}
 
-const db = new DatabaseSync(DB_PATH);
+const db = new Database(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');
 db.exec(`CREATE TABLE IF NOT EXISTS kv(key TEXT PRIMARY KEY, value TEXT)`);
 

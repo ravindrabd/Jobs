@@ -1,13 +1,18 @@
 // Personal Job Tracker — Express + SQLite (better-sqlite3)
 // Auto-imports jobs.csv into jobs.db on first run.
 
+console.log("NODE VERSION:", process.version);
+console.log("PORT:", process.env.PORT);
+console.log("DB_PATH:", process.env.DB_PATH);
+console.log("VOLUME:", process.env.RAILWAY_VOLUME_MOUNT_PATH);
+
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
 const express = require('express');
 const multer = require('multer');
 const cron = require('node-cron');
-const { DatabaseSync } = require('node:sqlite');
+const Database = require('better-sqlite3');
 const { run: runImport, ensureSchema } = require('./import.js');
 const { parseResume, parseJob } = require('./skills.js');
 const { scoreOne } = require('./match.js');
@@ -30,7 +35,7 @@ if (!dbExisted) {
   runImport();
 }
 
-const db = new DatabaseSync(DB_PATH);
+const db = new Database(DB_PATH);
 db.exec('PRAGMA journal_mode = WAL');
 db.exec('PRAGMA foreign_keys = ON');
 ensureSchema(db);
